@@ -3,7 +3,7 @@ import { Copy, Check, Download, FileCode, ChevronDown, ChevronUp } from 'lucide-
 
 export function EnrichedJsonView({ data, ideaId }: { data: any; ideaId?: string }) {
   const [copied, setCopied] = useState(false)
-  const [collapsed, setCollapsed] = useState(false)
+  const [collapsed, setCollapsed] = useState(true)
 
   // Build clean representation, omitting circular references or internal frontend metadata if desired
   const jsonString = JSON.stringify(data, null, 2)
@@ -43,18 +43,18 @@ export function EnrichedJsonView({ data, ideaId }: { data: any; ideaId?: string 
   return (
     <section className="enriched-json-panel" aria-label="Full Enriched JSON Output">
       <div className="json-header-bar">
-        <div className="json-title-group">
-          <FileCode size={17} className="json-icon" />
-          <div className="json-title-meta">
-            <h3 className="panel-title">Full Enriched JSON Output</h3>
-            <span className="json-meta-sub">{sizeKb} KB · UTF-8 formatted</span>
+        <div className="panel-title-group">
+          <span className="panel-icon tone-yellow" aria-hidden="true"><FileCode size={18} /></span>
+          <div>
+            <h3 className="panel-title">Raw idea data</h3>
+            <p className="panel-subtitle">{sizeKb} KB of JSON, as published to the board.</p>
           </div>
         </div>
 
         <div className="json-actions">
           <button
             type="button"
-            className="json-action-btn copy-btn"
+            className="json-action-btn"
             onClick={handleCopy}
             title="Copy full JSON payload to clipboard"
           >
@@ -73,7 +73,7 @@ export function EnrichedJsonView({ data, ideaId }: { data: any; ideaId?: string 
 
           <button
             type="button"
-            className="json-action-btn download-btn"
+            className="json-action-btn"
             onClick={handleDownload}
             title="Download JSON file to your device"
           >
@@ -83,7 +83,7 @@ export function EnrichedJsonView({ data, ideaId }: { data: any; ideaId?: string 
 
           <button
             type="button"
-            className="json-action-btn collapse-toggle-btn"
+            className="json-action-btn"
             onClick={() => setCollapsed(!collapsed)}
             title={collapsed ? 'Expand viewer' : 'Collapse viewer'}
           >

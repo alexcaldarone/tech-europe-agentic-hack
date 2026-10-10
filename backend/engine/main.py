@@ -92,22 +92,17 @@ def to_message(idea_id: str, idea: dict) -> dict:
     }
 
 
-def cut_chunk(pending: str, chunk_chars: int) -> str | None:
-    if len(pending) < chunk_chars:
-        return None
-
-    # Cut back to the last whitespace so words are not split across chunks.
-    chunk = pending[:chunk_chars]
-    last_space = max(chunk.rfind(" "), chunk.rfind("\n"))
-    if last_space > 0:
-        chunk = chunk[: last_space + 1]
-    return chunk
+def trailing_context(processed: str, context_words: int) -> str:
+    # The words right before the new text, so short chunks are read in context.
+    words = processed.split()
+    return " ".join(words[-context_words:]) if context_words > 0 else ""
 
 
 def extract_ideas(
     client: genai.Client,
     model: str,
     ideas: dict[str, dict],
+    context: str,
     chunk: str,
     max_retries: int,
 ) -> list[IdeaUpdate]:
@@ -115,7 +110,7 @@ def extract_ideas(
         response_mime_type="application/json",
         response_schema=ChunkIdeas,
     )
-    prompt = build_prompt(ideas, chunk)
+    prompt = build_prompt(ideas, context, chunk)
     logger.info("  → request · %s · %s", plural(len(ideas), "known idea"), plural(len(prompt), "prompt char"))
 
     start = time.monotonic()
@@ -155,12 +150,21 @@ def merge_ideas(ideas: dict[str, dict], updates: list[IdeaUpdate]) -> tuple[dict
     return merged, touched_ids
 
 
+def replace_transcript(transcript_path: Path, text: str) -> None:
+    # Atomic replace, like a transcriber reset: readers see a new file and start a new session.
+    transcript_path.parent.mkdir(parents=True, exist_ok=True)
+    temporary = transcript_path.with_name(transcript_path.name + ".tmp")
+    temporary.write_text(text, encoding="utf-8")
+    os.replace(temporary, transcript_path)
+
+
 def main(
     transcript_path: Path,
     idea_updates_path: Path,
     classified_chunks_path: Path,
     model: str,
-    chunk_chars: int,
+    chunk_words: int,
+    context_words: int,
     idle_flush_s: float,
     poll_interval_s: float,
     max_retries: int,
@@ -172,11 +176,11 @@ def main(
         http_options=types.HttpOptions(timeout=int(request_timeout_s * 1000)),
     )
     logger.info(
-        "engine started · model %s · chunk %d chars · idle flush %gs · poll %.1fs · retries %d · timeout %gs",
-        model, chunk_chars, idle_flush_s, poll_interval_s, max_retries, request_timeout_s,
+        "engine started · model %s · every %d words · %d-word window · idle flush %gs · poll %.1fs · retries %d · timeout %gs",
+        model, chunk_words, context_words, idle_flush_s, poll_interval_s, max_retries, request_timeout_s,
     )
-    transcript_path.parent.mkdir(parents=True, exist_ok=True)
-    transcript_path.touch(exist_ok=True)
+    # Each run starts a fresh session from an empty transcript.
+    replace_transcript(transcript_path, "")
 
     ideas: dict[str, dict] = {}
     offset = 0
@@ -184,7 +188,7 @@ def main(
     previous_length = 0
     last_text_at = time.monotonic()
     chunk_number = 1
-    last_waiting_chars = None
+    last_waiting_words = None
     while True:
         try:
             current_identity, transcript = read_transcript(transcript_path)
@@ -200,24 +204,26 @@ def main(
             if len(transcript) != previous_length:
                 previous_length = len(transcript)
                 last_text_at = time.monotonic()
-            pending = transcript[offset:]
-            chunk = cut_chunk(pending, chunk_chars)
-            if chunk is None and pending and time.monotonic() - last_text_at >= idle_flush_s:
-                chunk = pending
-            if chunk is None:
+            # Send every pending word at once, so the engine catches up after a slow call.
+            chunk = transcript[offset:]
+            new_words = len(chunk.split())
+            if new_words < chunk_words and not (new_words and time.monotonic() - last_text_at >= idle_flush_s):
                 # Log only when the pending count changes, to keep idle ticks quiet.
-                if len(pending) != last_waiting_chars:
-                    logger.info("waiting · %d/%d new chars", len(pending), chunk_chars)
-                    last_waiting_chars = len(pending)
+                if new_words != last_waiting_words:
+                    logger.info("waiting · %d/%d new words", new_words, chunk_words)
+                    last_waiting_words = new_words
                 time.sleep(poll_interval_s)
                 continue
-            last_waiting_chars = None
+            last_waiting_words = None
+            # The prompt holds a trailing window of context_words: the new words plus the ones before them.
+            context = trailing_context(transcript[:offset], context_words - new_words)
 
             logger.info(
-                "chunk #%d · %s · offset %s → %s",
-                chunk_number, plural(len(chunk), "char"), f"{offset:,}", f"{offset + len(chunk):,}",
+                "chunk #%d · %s + %s of context · offset %s → %s",
+                chunk_number, plural(new_words, "new word"), plural(len(context.split()), "word"),
+                f"{offset:,}", f"{offset + len(chunk):,}",
             )
-            updates = extract_ideas(client, model, ideas, chunk, max_retries)
+            updates = extract_ideas(client, model, ideas, context, chunk, max_retries)
             if file_identity(transcript_path) != identity:
                 logger.info("  discarded response · transcript was reset during the call")
                 continue
@@ -256,7 +262,8 @@ if __name__ == "__main__":
         idea_updates_path=pubsub_dir / config["pubsub"]["idea_updates"],
         classified_chunks_path=pubsub_dir / config["pubsub"]["classified_chunks"],
         model=engine["model"],
-        chunk_chars=engine["chunk_chars"],
+        chunk_words=engine["chunk_words"],
+        context_words=engine["context_words"],
         idle_flush_s=engine["idle_flush_s"],
         poll_interval_s=engine["poll_interval_s"],
         max_retries=engine["max_retries"],

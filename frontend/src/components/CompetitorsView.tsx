@@ -1,4 +1,4 @@
-import { Search, Calendar, ExternalLink, Globe } from 'lucide-react'
+import { Search, ExternalLink } from 'lucide-react'
 import type { CompetitorEnrichment } from '../ideaWorkspace'
 
 export function CompetitorsView({ data }: { data?: CompetitorEnrichment | null }) {
@@ -11,73 +11,40 @@ export function CompetitorsView({ data }: { data?: CompetitorEnrichment | null }
 
   return (
     <section className="competitors-panel" aria-label="Competitor Analysis">
-      {/* Header bar matching Image 2 */}
       <div className="panel-header">
         <div className="panel-title-group">
-          <Search size={17} className="panel-search-icon" aria-hidden="true" />
-          <h3 className="panel-title">Competitors Discovered via Google Search</h3>
-        </div>
-        <div className="grounded-badge">
-          <Globe size={13} className="grounded-icon" />
-          <span>Live Web Grounded</span>
+          <span className="panel-icon tone-orange" aria-hidden="true"><Search size={18} /></span>
+          <div><h3 className="panel-title">Competitors</h3><p className="panel-subtitle">Found with live Google Search.</p></div>
         </div>
       </div>
 
-      {/* Landscape summary paragraph in italics */}
-      {landscape && (
-        <p className="panel-summary-narrative">{landscape}</p>
+      {landscape && <p className="panel-summary-narrative competitors-landscape">{landscape}</p>}
+
+      {competitors.length > 0 && (
+        <ul className="competitor-list">
+          {competitors.map((comp, idx) => {
+            const founded = comp.yearOfFounding?.replace(/^founded\s*/i, '')
+            const overview = comp.summary || comp.idea || comp.shortBio
+            const difference = comp.howWeDiffer || comp.differentiator || data.our_positioning
+            return (
+              <li key={idx} className="competitor-row">
+                <div className="competitor-identity">
+                  <h4 className="competitor-name">{comp.name}</h4>
+                  {founded && <span className="founded-badge">Since {founded}</span>}
+                </div>
+                <div className="competitor-copy">
+                  {overview && <p className="competitor-overview">{overview}</p>}
+                  {difference && <p className="competitor-difference"><span>We differ</span>{difference}</p>}
+                </div>
+              </li>
+            )
+          })}
+        </ul>
       )}
 
-      {/* List of Competitor Cards */}
-      <div className="competitors-stack">
-        {competitors.map((comp, idx) => {
-          const foundedLabel = comp.yearOfFounding
-            ? (comp.yearOfFounding.toLowerCase().startsWith('founded') ? comp.yearOfFounding : `Founded ${comp.yearOfFounding}`)
-            : null
-
-          const ideaText = comp.idea || comp.summary || 'Context-aware automated solution.'
-          const bioText = comp.shortBio || comp.summary || 'Enterprise tooling in this domain.'
-          const diffText = comp.howWeDiffer || comp.differentiator || data.our_positioning || 'Provides closed-loop verification and bespoke orchestration.'
-
-          return (
-            <div key={idx} className="competitor-card">
-              {/* Header row: Name + Founded badge */}
-              <div className="competitor-card-header">
-                <h4 className="competitor-name">{comp.name}</h4>
-                {foundedLabel && (
-                  <span className="founded-badge">
-                    <Calendar size={13} className="calendar-icon" />
-                    <span>{foundedLabel}</span>
-                  </span>
-                )}
-              </div>
-
-              {/* Two columns: THEIR IDEA and SHORT BIO */}
-              <div className="competitor-details-grid">
-                <div className="competitor-subcol">
-                  <span className="subcol-label">THEIR IDEA</span>
-                  <p className="subcol-text">{ideaText}</p>
-                </div>
-                <div className="competitor-subcol">
-                  <span className="subcol-label">SHORT BIO</span>
-                  <p className="subcol-text">{bioText}</p>
-                </div>
-              </div>
-
-              {/* Full-width callout: HOW WE DIFFER */}
-              <div className="how-we-differ-box">
-                <span className="differ-label">HOW WE DIFFER</span>
-                <p className="differ-text">{diffText}</p>
-              </div>
-            </div>
-          )
-        })}
-      </div>
-
-      {/* Grounding sources footer */}
       {Boolean(data.groundingSources?.length) && (
         <div className="grounding-sources-row">
-          <span className="sources-label">Verified Sources:</span>
+          <span className="sources-label">Sources</span>
           <div className="sources-chips">
             {data.groundingSources?.map((url, i) => {
               let domain = url
@@ -87,13 +54,7 @@ export function CompetitorsView({ data }: { data?: CompetitorEnrichment | null }
                 // Keep raw
               }
               return (
-                <a
-                  key={i}
-                  href={url}
-                  target="_blank"
-                  rel="noopener noreferrer"
-                  className="source-chip"
-                >
+                <a key={i} href={url} target="_blank" rel="noopener noreferrer" className="source-chip">
                   <span>{domain}</span>
                   <ExternalLink size={11} />
                 </a>

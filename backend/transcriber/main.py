@@ -75,15 +75,6 @@ async def health():
     return {"status": "ready"}
 
 
-@app.get("/transcript")
-async def transcript():
-    try:
-        return {"transcript": await file_operation(TRANSCRIPT_FILE.read_text, encoding="utf-8")}
-    except OSError as exc:
-        logger.error("Cannot read transcript: %s", exc)
-        raise HTTPException(500, "Cannot read transcript") from exc
-
-
 @app.post("/transcript/reset")
 async def reset():
     # Ownership check and replacement are atomic relative to Start and final saving.

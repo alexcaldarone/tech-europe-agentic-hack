@@ -45,10 +45,16 @@ function InfoBanner({ message, role = 'status', loading = false }: { message: st
   return <div className="info-banner" role={role}><span className="info-banner-content">{loading ? <LoaderCircle className="banner-spinner" size={16} aria-hidden="true" /> : <Info size={16} aria-hidden="true" />}<span>{message}</span></span><button type="button" aria-label="Dismiss notification" onClick={() => setDismissed(true)}><X size={16} /></button></div>
 }
 
-function thumbnailUrl(thumbnail?: string | null) {
-  if (!thumbnail || /^(?:https?:|data:|blob:)/.test(thumbnail)) return thumbnail || ''
-  const base = (import.meta.env.VITE_IDEAS_URL || import.meta.env.VITE_ENRICHMENT_URL || '/api/enrichment').replace(/\/$/, '')
-  return thumbnail.startsWith('/ideas/') ? `${base}${thumbnail}` : thumbnail
+function getTranscriptWidthBounds() {
+  if (typeof window === 'undefined') return { minWidth: 260, maxWidth: 800 }
+  const isOverlay = window.innerWidth <= 980
+  const minWidth = 260
+  const minSidebarAndMain = window.innerWidth <= 1160 ? 610 : 666
+  const maxAvailable = isOverlay
+    ? window.innerWidth - 60
+    : window.innerWidth - minSidebarAndMain
+  const maxWidth = Math.max(minWidth, Math.min(800, maxAvailable))
+  return { minWidth, maxWidth }
 }
 
 function App() {
@@ -85,6 +91,130 @@ function App() {
   const transcriptFeedRef = useRef<HTMLDivElement>(null)
   const discussedCardRef = useRef<HTMLElement | null>(null)
   const transitioning = recording === 'connecting' || recording === 'saving' || restarting
+  const appShellRef = useRef<HTMLDivElement>(null)
+  const [transcriptWidth, setTranscriptWidth] = useState(() => {
+    try {
+      const saved = localStorage.getItem('transcript_width')
+      if (saved) {
+        const parsed = Number(saved)
+        if (!Number.isNaN(parsed) && parsed >= 260 && parsed <= 800) {
+          return parsed
+        }
+      }
+    } catch {}
+    return 314
+  })
+  const [isDraggingTranscript, setIsDraggingTranscript] = useState(false)
+  const transcriptWidthRef = useRef(transcriptWidth)
+
+  useEffect(() => {
+    transcriptWidthRef.current = transcriptWidth
+  }, [transcriptWidth])
+
+  useEffect(() => {
+    if (!isDraggingTranscript) return
+
+    document.body.classList.add('is-resizing')
+
+    const handlePointerMove = (event: PointerEvent) => {
+      const containerRight = appShellRef.current
+        ? appShellRef.current.getBoundingClientRect().right
+        : window.innerWidth
+      const rawWidth = containerRight - event.clientX
+      const { minWidth, maxWidth } = getTranscriptWidthBounds()
+      const clamped = Math.max(minWidth, Math.min(maxWidth, Math.round(rawWidth)))
+      transcriptWidthRef.current = clamped
+      if (appShellRef.current) {
+        appShellRef.current.style.setProperty('--transcript-width', `${clamped}px`)
+      }
+    }
+
+    const handlePointerUp = () => {
+      setIsDraggingTranscript(false)
+      const finalWidth = transcriptWidthRef.current
+      setTranscriptWidth(finalWidth)
+      try {
+        localStorage.setItem('transcript_width', String(finalWidth))
+      } catch {}
+    }
+
+    window.addEventListener('pointermove', handlePointerMove)
+    window.addEventListener('pointerup', handlePointerUp)
+    window.addEventListener('pointercancel', handlePointerUp)
+
+    return () => {
+      document.body.classList.remove('is-resizing')
+      window.removeEventListener('pointermove', handlePointerMove)
+      window.removeEventListener('pointerup', handlePointerUp)
+      window.removeEventListener('pointercancel', handlePointerUp)
+    }
+  }, [isDraggingTranscript])
+
+  useEffect(() => {
+    const handleResize = () => {
+      const { minWidth, maxWidth } = getTranscriptWidthBounds()
+      setTranscriptWidth(current => {
+        const clamped = Math.max(minWidth, Math.min(maxWidth, current))
+        if (clamped !== current) {
+          transcriptWidthRef.current = clamped
+          if (appShellRef.current) {
+            appShellRef.current.style.setProperty('--transcript-width', `${clamped}px`)
+          }
+          try {
+            localStorage.setItem('transcript_width', String(clamped))
+          } catch {}
+          return clamped
+        }
+        return current
+      })
+    }
+    window.addEventListener('resize', handleResize)
+    return () => window.removeEventListener('resize', handleResize)
+  }, [])
+
+  function handleResizerDoubleClick() {
+    const defaultWidth = 314
+    const { minWidth, maxWidth } = getTranscriptWidthBounds()
+    const resetWidth = Math.max(minWidth, Math.min(maxWidth, defaultWidth))
+    setTranscriptWidth(resetWidth)
+    transcriptWidthRef.current = resetWidth
+    if (appShellRef.current) {
+      appShellRef.current.style.setProperty('--transcript-width', `${resetWidth}px`)
+    }
+    try {
+      localStorage.setItem('transcript_width', String(resetWidth))
+    } catch {}
+  }
+
+  function handleResizerKeyDown(event: React.KeyboardEvent) {
+    const { minWidth, maxWidth } = getTranscriptWidthBounds()
+    const step = event.shiftKey ? 40 : 16
+    let nextWidth = transcriptWidth
+
+    if (event.key === 'ArrowLeft') {
+      nextWidth = Math.min(maxWidth, transcriptWidth + step)
+    } else if (event.key === 'ArrowRight') {
+      nextWidth = Math.max(minWidth, transcriptWidth - step)
+    } else if (event.key === 'Home') {
+      nextWidth = minWidth
+    } else if (event.key === 'End') {
+      nextWidth = maxWidth
+    } else if (event.key === 'Enter') {
+      nextWidth = 314
+    } else {
+      return
+    }
+
+    event.preventDefault()
+    setTranscriptWidth(nextWidth)
+    transcriptWidthRef.current = nextWidth
+    if (appShellRef.current) {
+      appShellRef.current.style.setProperty('--transcript-width', `${nextWidth}px`)
+    }
+    try {
+      localStorage.setItem('transcript_width', String(nextWidth))
+    } catch {}
+  }
 
   useEffect(() => {
     try {
@@ -225,7 +355,11 @@ function App() {
   )
 
   return (
-    <div className="app-shell">
+    <div
+      ref={appShellRef}
+      className="app-shell"
+      style={{ '--transcript-width': `${transcriptWidth}px` } as React.CSSProperties}
+    >
       <dialog ref={restartDialog} className="restart-dialog" aria-labelledby="restart-title" onCancel={event => { if (restarting) event.preventDefault() }}>
         <button type="button" className="icon-button restart-dialog-close" aria-label="Cancel restart" disabled={restarting} onClick={() => restartDialog.current?.close()}><X size={18} /></button>
         <h2 id="restart-title">Restart brainstorm?</h2>
@@ -315,7 +449,7 @@ function App() {
                   >
                     <div className={`idea-art art-${idea.pattern}`}>
                       <BrandShape variant={index % 6} />
-                      {idea.thumbnail && <img className="idea-thumbnail" src={thumbnailUrl(idea.thumbnail)} alt="" onError={event => { event.currentTarget.style.display = 'none' }} />}
+                      {idea.thumbnail && <img className="idea-thumbnail" src={idea.thumbnail} alt="" onError={event => { event.currentTarget.style.display = 'none' }} />}
                     </div>
                     <div className="idea-card-body">
                       <div className="idea-card-topline">{activeSession === 'Hackathon' && focusedIdeaId === idea.id && <span className="discussion-label">Discussing now</span>}<span className="idea-tag">{idea.tag}</span><button className="icon-button small" type="button" aria-label="Idea options"><MoreHorizontal size={17} /></button></div>
@@ -366,6 +500,24 @@ function App() {
       </main>
 
       <aside className={`transcript-sidebar ${transcriptOpen ? 'mobile-open' : ''}`} aria-label="Live transcript">
+        <div
+          role="separator"
+          aria-orientation="vertical"
+          aria-label="Resize transcript panel"
+          title="Drag to resize transcript (double-click to reset)"
+          aria-valuenow={transcriptWidth}
+          aria-valuemin={260}
+          aria-valuemax={800}
+          tabIndex={0}
+          className={`transcript-resizer ${isDraggingTranscript ? 'is-dragging' : ''}`}
+          onPointerDown={event => {
+            if (event.button === 0) {
+              setIsDraggingTranscript(true)
+            }
+          }}
+          onDoubleClick={handleResizerDoubleClick}
+          onKeyDown={handleResizerKeyDown}
+        />
         <div className="transcript-header">
           <div><div className="transcript-title-row"><h2>Transcript</h2><button type="button" className="icon-button small mobile-close" onClick={() => setTranscriptOpen(false)} aria-label="Close transcript"><X size={16} /></button></div></div>
           <details className="transcript-options" onBlur={event => {
@@ -394,11 +546,9 @@ function App() {
           {!loaded && !error && <InfoBanner message="Loading existing transcript…" loading />}
           {loaded && transcript.length === 0 && <p>Start recording to capture your conversation.</p>}
           <div className="transcript-date"><span />TODAY<span /></div>
-          {transcript.map((line, index) => (
-            <article className={`transcript-line ${index === transcript.length - 1 && recording === 'recording' ? 'currently-speaking' : ''}`} key={index}>
-              <div className="transcript-line-content">{line.time && <time>{line.time}</time>}<p>{line.text}</p></div>
-            </article>
-          ))}
+          {transcript && <article className={`transcript-line ${recording === 'recording' ? 'currently-speaking' : ''}`}>
+            <div className="transcript-line-content"><p>{transcript}</p></div>
+          </article>}
           {recording === 'recording' && <div className="transcript-capture"><span className="capture-avatar">···</span><span>Listening for the next thought</span><span className="capture-pulse" /></div>}
         </div>
       </aside>

@@ -1,10 +1,21 @@
 import { useState } from 'react'
-import { TrendingUp, ShieldAlert, ChevronDown, ChevronUp, AlertTriangle, CheckCircle2, Scale } from 'lucide-react'
+import { ChevronDown, ChevronUp, AlertTriangle, CheckCircle2, Scale } from 'lucide-react'
 import type { ProsConsEnrichment, ProConItem } from '../ideaWorkspace'
+
+const MAX_ITEMS = 3
+const RANK: Record<string, number> = { high: 0, medium: 1, low: 2 }
 
 function normalizeItem(item: ProConItem | string): ProConItem {
   if (typeof item === 'string') return { point: item, category: 'Discussion', severity_or_impact: 'Medium', source_context: '' }
   return item
+}
+
+function topItems(items: (ProConItem | string)[] = []): ProConItem[] {
+  // Stable sort keeps the discussion order within one impact level.
+  return items
+    .map(normalizeItem)
+    .sort((a, b) => (RANK[a.severity_or_impact?.toLowerCase()] ?? 1) - (RANK[b.severity_or_impact?.toLowerCase()] ?? 1))
+    .slice(0, MAX_ITEMS)
 }
 
 export function ProsConsView({ data }: { data?: ProsConsEnrichment | null }) {
@@ -12,22 +23,24 @@ export function ProsConsView({ data }: { data?: ProsConsEnrichment | null }) {
 
   if (!data || (!data.pros?.length && !data.cons?.length && !data.summary)) return null
 
-  const pros = (data.pros || []).map(normalizeItem)
-  const cons = (data.cons || []).map(normalizeItem)
+  const pros = topItems(data.pros)
+  const cons = topItems(data.cons)
   const hasExtended = Boolean(data.key_risks?.length || data.assumptions?.length)
 
   return (
     <section className="pros-cons-panel" aria-label="Pros and Cons Analysis">
       <div className="panel-header">
-        <div className="panel-title-group"><Scale size={18} className="panel-emoji-icon" aria-hidden="true" /><h3 className="panel-title">Pros &amp; Cons Identified from Body</h3></div>
-        <span className="panel-header-badge">Sorted by impact</span>
+        <div className="panel-title-group">
+          <span className="panel-icon tone-blue" aria-hidden="true"><Scale size={18} /></span>
+          <div><h3 className="panel-title">Pros &amp; cons</h3><p className="panel-subtitle">The top three of each, by impact.</p></div>
+        </div>
       </div>
 
       {data.summary && <p className="panel-summary-narrative">{data.summary}</p>}
 
       <div className="pros-cons-columns">
         <div className="column-pane pros-column">
-          <div className="column-header pros-heading"><TrendingUp size={16} /><h4>Pros voiced in discussion</h4></div>
+          <div className="column-header pros-heading"><span className="column-dot" /><h4>Pros</h4></div>
           <div className="cards-stack">
             {pros.map((pro, index) => {
               const impact = pro.severity_or_impact || 'Medium'
@@ -42,7 +55,7 @@ export function ProsConsView({ data }: { data?: ProsConsEnrichment | null }) {
         </div>
 
         <div className="column-pane cons-column">
-          <div className="column-header cons-heading"><ShieldAlert size={16} /><h4>Cons voiced in discussion</h4></div>
+          <div className="column-header cons-heading"><span className="column-dot" /><h4>Cons</h4></div>
           <div className="cards-stack">
             {cons.map((con, index) => {
               const risk = con.severity_or_impact || 'Medium'

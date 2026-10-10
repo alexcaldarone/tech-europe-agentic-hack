@@ -3,9 +3,7 @@ import type { Idea } from './ideaWorkspace'
 import { AbstractSymbol } from './BrandShape'
 import { KeyConclusionCard } from './components/KeyConclusionCard'
 import { ProsConsView } from './components/ProsConsView'
-import { OpenQuestionsView } from './components/OpenQuestionsView'
 import { CompetitorsView } from './components/CompetitorsView'
-import { DiagramsView } from './components/DiagramsView'
 import { EnrichedJsonView } from './components/EnrichedJsonView'
 import { Users, ThumbsUp, ThumbsDown, Sparkles } from 'lucide-react'
 
@@ -82,117 +80,110 @@ export function EditableIdea({
 
   return (
     <div className="enriched-idea-container">
-      {/* Top Symbol & Header Block */}
-      <div className="idea-header-block">
-        <AbstractSymbol className="idea-page-symbol" />
-        <div className="idea-meta-badges">
-          {idea.status && (
-            <span className={`status-pill status-${idea.status}`}>
-              <Sparkles size={11} />
-              <span>{idea.status}</span>
-            </span>
-          )}
-          {idea.votes !== undefined && idea.votes > 0 && (
-            <span className="votes-pill">
-              ★ {idea.votes} {idea.votes === 1 ? 'vote' : 'votes'}
-            </span>
-          )}
-        </div>
-      </div>
-
-      {/* 1. Editable Title */}
-      <div className="idea-editor-title" role="heading" aria-level={1}>
-        <TextBlock
-          label="Idea title"
-          className="editable-title"
-          value={idea.title}
-          placeholder="Untitled idea"
-          singleLine
-          onChange={(title) => onChange({ title })}
-        />
-      </div>
-
-      {/* Tag input */}
-      <div className="idea-tag-row">
-        <input
-          className="editable-tag idea-tag"
-          aria-label="Idea tag"
-          value={idea.tag}
-          placeholder="Add a tag"
-          onChange={(event) => onChange({ tag: event.target.value })}
-        />
-      </div>
-
-      {/* 2. Idea Summary */}
-      <div className="idea-summary-section">
-        <label className="section-eyebrow-label">Executive Summary</label>
-        <div className="idea-editor-body">
-          <TextBlock
-            label="Idea content"
-            className="editable-body"
-            value={idea.summary}
-            placeholder="Start writing your idea…"
-            onChange={(summary) => onChange({ summary })}
-          />
-        </div>
-      </div>
-
-      <small className={`editor-save-status ${storageError ? 'save-error' : ''}`} role="status">
-        {storageError
-          ? 'Could not save in this browser. Keep this tab open to retain your edits.'
-          : 'Click any text to edit · Saved in this browser'}
-      </small>
-
-      {/* 3. Key Conclusion so Far */}
-      {keyConclusion && (
-        <KeyConclusionCard
-          takeaway={idea.metadata?.key_takeaway}
-          conclusion={idea.conclusion}
-          fallback={keyConclusion}
-        />
-      )}
-
-      {/* Discussion Voice Champions (Proponents & Opponents) */}
-      {hasParticipants && (
-        <div className="participants-brief-row">
-          <div className="participants-group">
-            <span className="participants-label">
-              <Users size={13} />
-              <span>Discussion Voices:</span>
-            </span>
-            {Boolean(idea.proponents?.length) && (
-              <span className="voice-badge proponents-badge">
-                <ThumbsUp size={11} />
-                <span>{idea.proponents?.length} Champions</span>
+      <div className="idea-intro">
+        <div className="idea-header-block">
+          <AbstractSymbol className="idea-page-symbol" />
+          <div className="idea-meta-badges">
+            {idea.status && (
+              <span className={`status-pill status-${idea.status}`}>
+                <Sparkles size={11} />
+                <span>{idea.status}</span>
               </span>
             )}
-            {Boolean(idea.opponents?.length) && (
-              <span className="voice-badge opponents-badge">
-                <ThumbsDown size={11} />
-                <span>{idea.opponents?.length} Skeptics</span>
+            {idea.votes !== undefined && idea.votes > 0 && (
+              <span className="votes-pill">
+                ★ {idea.votes} {idea.votes === 1 ? 'vote' : 'votes'}
               </span>
             )}
           </div>
         </div>
-      )}
+
+        {/* 1. Editable Title */}
+        <div className="idea-editor-title" role="heading" aria-level={1}>
+          <TextBlock
+            label="Idea title"
+            className="editable-title"
+            value={idea.title}
+            placeholder="Untitled idea"
+            singleLine
+            onChange={(title) => onChange({ title })}
+          />
+        </div>
+
+        {/* Tag input */}
+        <div className="idea-tag-row">
+          <input
+            className="editable-tag idea-tag"
+            aria-label="Idea tag"
+            value={idea.tag}
+            placeholder="Add a tag"
+            onChange={(event) => onChange({ tag: event.target.value })}
+          />
+        </div>
+
+        {/* 2. Idea Summary */}
+        <div className="idea-summary-section">
+          <label className="section-eyebrow-label">Executive Summary</label>
+          <div className="idea-editor-body">
+            <TextBlock
+              label="Idea content"
+              className="editable-body"
+              value={idea.summary}
+              placeholder="Start writing your idea…"
+              onChange={(summary) => onChange({ summary })}
+            />
+          </div>
+        </div>
+
+        <small className={`editor-save-status ${storageError ? 'save-error' : ''}`} role="status">
+          {storageError
+            ? 'Could not save in this browser. Keep this tab open to retain your edits.'
+            : 'Click any text to edit · Saved in this browser'}
+        </small>
+      </div>
+
+      {(keyConclusion || hasParticipants) && <div className="conclusion-group">
+        {/* 3. Key Conclusion so Far */}
+        {keyConclusion && (
+          <KeyConclusionCard
+            takeaway={idea.metadata?.key_takeaway}
+            conclusion={idea.conclusion}
+            fallback={keyConclusion}
+          />
+        )}
+
+        {/* Discussion Voice Champions (Proponents & Opponents) */}
+        {hasParticipants && (
+          <div className="participants-brief-row">
+            <div className="participants-group">
+              <span className="participants-label">
+                <Users size={13} />
+                <span>Discussion voices</span>
+              </span>
+              {Boolean(idea.proponents?.length) && (
+                <span className="voice-badge proponents-badge">
+                  <ThumbsUp size={11} />
+                  <span>{idea.proponents?.length} Champions</span>
+                </span>
+              )}
+              {Boolean(idea.opponents?.length) && (
+                <span className="voice-badge opponents-badge">
+                  <ThumbsDown size={11} />
+                  <span>{idea.opponents?.length} Skeptics</span>
+                </span>
+              )}
+            </div>
+          </div>
+        )}
+      </div>}
 
       {/* 4. Pros & Cons identified from body (Categorized & Sorted) - Matches Image 1 */}
       <ProsConsView data={idea.pros_cons} />
 
-      {/* Questions remain visible independently of the pros/cons analysis. */}
-      <OpenQuestionsView questions={idea.pros_cons?.open_questions} />
-
       {/* 5. Competitors Discovered via Google Search - Matches Image 2 */}
       <CompetitorsView data={idea.competitors} />
 
-      {/* 6. Visual Diagrams (Process Workflow & System Architecture) */}
-      <DiagramsView
-        workflow={idea.workflow}
-        systemGraph={idea.systemGraph}
-        ideaId={idea.id}
-      />
-
-      {/* 7. Full Enriched JSON Output (Copy & Download) */}
+      {/* 6. Full Enriched JSON Output (Copy & Download) */}
       <EnrichedJsonView data={rawData} ideaId={idea.id} />
     </div>
   )

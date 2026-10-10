@@ -1,0 +1,11 @@
+[project]
+name = "enricher"
+version = "0.1.0"
+description = "Enriches ideas from classified-chunks.jsonl with conclusion, pros/cons and competitors"
+requires-python = "==3.13.*"
+dependencies = [
+    "google-genai>=2.29.0",
+    "pydantic>=2.14.0",
+    "python-dotenv>=1.2.4",
+    "pyyaml>=6.0",
+]

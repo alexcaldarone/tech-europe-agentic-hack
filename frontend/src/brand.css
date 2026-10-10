@@ -112,7 +112,7 @@ button:focus-visible, a:focus-visible, input:focus-visible { outline-color: var(
 .editable-block:hover, .editable-tag:hover { background: #fafafa; }
 .editable-block:focus-visible, .editable-tag:focus-visible { outline: 2px solid #e5e5e5; outline-offset: 5px; }
 .editable-title { font-family: 'Recia', Georgia, serif; font-weight: 500; font-size: var(--text-title); letter-spacing: -0.03em; line-height: 1.35; }
-.editable-body { min-height: 150px; font-size: var(--text-body); line-height: 1.8; color: #525252; }
+.editable-body { font-size: var(--text-body); line-height: 1.8; color: #525252; }
 .editable-tag { width: 180px; max-width: 100%; padding: 6px 8px; border: 0; font-size: var(--text-small); }
 .editor-save-status { color: #737373; font-size: var(--text-small); }
 .editor-save-status.save-error { color: #a33318; }

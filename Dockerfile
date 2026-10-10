@@ -19,15 +19,12 @@ RUN uv sync --frozen --no-dev
 COPY backend/engine/main.py backend/engine/prompt.py ./
 CMD [".venv/bin/python", "main.py"]
 
-FROM node:22-slim AS enricher
-WORKDIR /app/backend/enrichment
-COPY backend/enrichment/package.json backend/enrichment/package-lock.json ./
-RUN npm ci
-COPY backend/enrichment/server.ts backend/enrichment/tsconfig.json ./
-COPY backend/enrichment/src ./src
-ENV NODE_ENV=production PORT=3000
-EXPOSE 3000
-CMD ["node", "--import", "tsx", "server.ts"]
+FROM python-base AS enricher
+WORKDIR /app/backend/enricher
+COPY backend/enricher/pyproject.toml backend/enricher/uv.lock ./
+RUN uv sync --frozen --no-dev
+COPY backend/enricher/main.py backend/enricher/prompts.py ./
+CMD [".venv/bin/python", "main.py"]
 
 FROM node:22-slim AS frontend
 WORKDIR /app/frontend

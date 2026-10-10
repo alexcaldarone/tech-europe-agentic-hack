@@ -30,40 +30,6 @@ export type ProsConsEnrichment = {
   cons: (ProConItem | string)[]
   key_risks?: string[]
   assumptions?: string[]
-  open_questions?: string[]
-  generated_at?: number
-}
-
-export type WorkflowEnrichment = {
-  summary?: string
-  steps?: string[]
-  mermaid_code?: string | null
-  mermaidCode?: string | null
-  image_prompt?: string
-  image_url?: string | null
-  generated_at?: number
-}
-
-export type ArchitectureNode = {
-  id: string
-  label: string
-  description?: string
-  component_type?: string
-}
-
-export type ArchitectureEdge = {
-  source: string
-  target: string
-  label?: string
-}
-
-export type ArchitectureEnrichment = {
-  summary?: string
-  nodes?: ArchitectureNode[]
-  edges?: ArchitectureEdge[]
-  mermaid_code?: string
-  image_prompt?: string
-  image_url?: string | null
   generated_at?: number
 }
 
@@ -79,9 +45,7 @@ export type GeneratedIdea = {
   proponents?: string[]
   opponents?: string[]
   competitors?: CompetitorEnrichment | null
-  workflow?: WorkflowEnrichment | null
   pros_cons?: ProsConsEnrichment | null
-  systemGraph?: ArchitectureEnrichment | null
   status?: string
   metadata?: Record<string, any>
   conclusion?: string | null

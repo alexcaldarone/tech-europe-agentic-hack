@@ -1,7 +1,7 @@
 import json
 
 
-def build_prompt(ideas: dict[str, dict], chunk: str) -> str:
+def build_prompt(ideas: dict[str, dict], context: str, chunk: str) -> str:
     known_ideas = [{"id": idea_id, "title": idea["title"], "summary": idea["summary"]} for idea_id, idea in ideas.items()]
     known_ideas_json = json.dumps(known_ideas, indent=2, ensure_ascii=False)
 
@@ -10,9 +10,10 @@ def build_prompt(ideas: dict[str, dict], chunk: str) -> str:
 You receive:
 
 1. `EXISTING IDEAS`: a JSON list of the ideas captured so far, each with `id`, `title` and `summary`.
-2. `NEW TRANSCRIPT CHUNK`: the latest piece of the conversation. It may start or end mid-sentence.
+2. `PREVIOUS CONTEXT`: the conversation right before the chunk, already processed. Use it only to understand the chunk.
+3. `NEW TRANSCRIPT CHUNK`: the latest piece of the conversation. It may start or end mid-sentence.
 
-Your task is to find every idea discussed in the chunk and report it.
+Your task is to find every idea discussed in the chunk and report it. Ideas discussed only in the previous context have already been reported.
 
 - If the chunk discusses an existing idea, return it with its `id`. Its `summary` must merge the existing summary with the new information from the chunk: keep what is still valid, add new details, and update anything the team revised. Keep the `title` unless the team clearly renamed or reframed the idea.
 - If the chunk introduces a new idea, return it with `id` set to `null`, a short descriptive `title`, and a fresh `summary`.
@@ -33,6 +34,9 @@ Writing style:
 
 EXISTING IDEAS:
 {known_ideas_json}
+
+PREVIOUS CONTEXT:
+{context or "(none)"}
 
 NEW TRANSCRIPT CHUNK:
 {chunk}

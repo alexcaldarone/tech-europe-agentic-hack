@@ -15,7 +15,6 @@ The service listens on port 8000 with **one worker**. Use the frontend's Start, 
 | WebSocket `/ws/transcribe` | Start: claim the single recording slot, connect Gradium, send `{"type":"ready"}`, then accept binary PCM. A second recorder receives an error. |
 | Socket `{"action":"stop"}` | Send end-of-stream once, drain for up to five seconds, save remaining text, close normally. Disconnects also drain and save. |
 | Socket `{"action":"flush"}` | Request a provider flush; file writes still follow the timer. |
-| `GET /transcript` | `{"transcript":"..."}` containing only persisted text. |
 | `POST /transcript/reset` | Start a new session: clear `idea-updates.jsonl` and `classified-chunks.jsonl`, then atomically replace the transcript with an empty file. Return 409 during recording initialization, capture, or final saving. |
 | `GET /health` | Local readiness without contacting Gradium. |
 

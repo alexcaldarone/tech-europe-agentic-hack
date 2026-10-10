@@ -27,8 +27,8 @@ Live topic files are gitignored; `pubsub/*.example.*` shows their shape.
 
 Our focus is the engine: a minimal `while True` Python loop in `backend/engine/main.py`. No overengineering, just a minimal working prototype.
 
-- Polls `pubsub/transcript.txt` and cuts the new text into chunks of about `CHUNK_CHARS` characters.
+- Polls `pubsub/transcript.txt` and, once `chunk_words` new words arrive, sends them with the preceding words as context (a trailing window of `context_words`).
 - Sends each chunk plus the known ideas to Gemini (structured output), which returns new and updated ideas.
 - Keeps known ideas in memory only; it never reads back its own topics.
 - Per chunk, publishes to `idea-updates.jsonl` first, then to `classified-chunks.jsonl`, so the frontend knows an idea before enrichment does.
-- Each run is a fresh session: it truncates both topics at startup, and again when the transcriber clears the transcript.
+- Each run is a fresh session: at startup it replaces the transcript and truncates both topics, and truncates them again when the transcriber clears the transcript.
