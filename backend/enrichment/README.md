@@ -239,6 +239,22 @@ For a new ID, the service generates summary, categorized pros/cons, workflow,
 system architecture, and grounded competitors. For an existing ID, the router
 always refreshes the summary and selects only affected downstream sections.
 
+To continuously consume an append-only JSONL topic, keep the Python enrichment
+API running and start the classified-chunk router in a second terminal:
+
+```bash
+python -m backend.enrichment.classified_chunks_worker \
+  --file pubsub/classified-chunks.jsonl \
+  --interval 2
+```
+
+Each line may contain one `{ "chunk": "...", "ideas": [...] }` object, as in
+`pubsub/classified-chunks.example.jsonl`. The router checkpoints its byte offset
+beside the input file only after a successful API response. New idea IDs run the
+complete pipeline; existing IDs use the decision router to update only affected
+sections. Use `--once` for a one-shot test. Replayed chunk content remains safe
+because the API also deduplicates stable content-derived chunk IDs per idea.
+
 ## Per-idea saved artifacts
 
 The aggregate database remains `data/ideas.json`. Every save also writes the

@@ -21,6 +21,7 @@ import {
   X,
 } from 'lucide-react'
 import './App.css'
+import './enrichedView.css'
 import { AbstractSymbol, BrandShape, RecordingShape } from './BrandShape'
 import { EditableIdea } from './EditableIdea'
 import { foldIdeaUpdates, mergeGeneratedIdeas, readWorkspace, workspaceKey } from './ideaWorkspace'
@@ -44,7 +45,7 @@ function InfoBanner({ message, role = 'status' }: { message: string; role?: 'sta
 
 function thumbnailUrl(thumbnail?: string | null) {
   if (!thumbnail || /^(?:https?:|data:|blob:)/.test(thumbnail)) return thumbnail || ''
-  const base = (import.meta.env.VITE_IDEAS_URL || '/enrichment').replace(/\/$/, '')
+  const base = (import.meta.env.VITE_IDEAS_URL || import.meta.env.VITE_ENRICHMENT_URL || '/api/enrichment').replace(/\/$/, '')
   return thumbnail.startsWith('/ideas/') ? `${base}${thumbnail}` : thumbnail
 }
 
@@ -53,7 +54,11 @@ function App() {
     try { return readWorkspace(localStorage.getItem(workspaceKey)) } catch { return null }
   })
   const [storageError, setStorageError] = useState(false)
-  const [sessions, setSessions] = useState(restored?.sessions || initialSessions)
+  const [sessions, setSessions] = useState(() => {
+    const saved = restored?.sessions || []
+    const missingBoilerplates = initialSessions.filter(template => !saved.some(session => session.name === template.name))
+    return saved.length ? [...saved, ...missingBoilerplates] : initialSessions
+  })
   const [activeSession, setActiveSession] = useState('Hackathon')
   const [search, setSearch] = useState('')
   const [sessionIdeas, setSessionIdeas] = useState<Record<string, Idea[]>>(() => ({
@@ -66,13 +71,13 @@ function App() {
   const [ideasError, setIdeasError] = useState('')
   const [layout, setLayout] = useState<'horizontal' | 'grid'>('horizontal')
   const [focusedIdeaId, setFocusedIdeaId] = useState<string | null>(null)
+  const discussedCardRef = useRef<HTMLElement | null>(null)
   const ideas = sessionIdeas[activeSession] || []
   const setIdeas = (update: (current: Idea[]) => Idea[]) => setSessionIdeas(current => ({ ...current, [activeSession]: update(current[activeSession] || []) }))
   const [selectedIdea, setSelectedIdea] = useState<string | null>(null)
   const { transcript, recording, resetting, error, loaded, elapsedSeconds, startRecording, stopRecording, resetTranscript, exportTranscript } = useTranscription()
   const [transcriptOpen, setTranscriptOpen] = useState(false)
   const transcriptFeedRef = useRef<HTMLDivElement>(null)
-  const discussedCardRef = useRef<HTMLElement | null>(null)
   const transitioning = recording === 'connecting' || recording === 'saving' || resetting
 
   useEffect(() => {
@@ -92,6 +97,7 @@ function App() {
   useEffect(() => {
     const controller = new AbortController()
     let timer: ReturnType<typeof setTimeout>
+    let refreshDelay = __IDEA_POLL_INTERVAL_MS__
     async function refresh() {
       try {
         const session = ideaSession.current
@@ -103,13 +109,15 @@ function App() {
         const focused = data.find(idea => idea.is_currently_discussed)
         setFocusedIdeaId(focused ? `engine-${focused.id}` : null)
         setIdeasError('')
+        refreshDelay = __IDEA_POLL_INTERVAL_MS__
       } catch {
         if (!controller.signal.aborted) {
+          refreshDelay = Math.min(refreshDelay * 2, 30000)
           setFocusedIdeaId(null)
           setIdeasError('Showing saved ideas. Live updates are unavailable; retrying…')
         }
       } finally {
-        if (!controller.signal.aborted) timer = setTimeout(refresh, __IDEA_POLL_INTERVAL_MS__)
+        if (!controller.signal.aborted) timer = setTimeout(refresh, refreshDelay)
       }
     }
     void refresh()
@@ -160,6 +168,12 @@ function App() {
     setExpanded(current => current.includes(activeSession) ? current : [...current, activeSession])
   }
 
+  function openSession(name: string, ideaId: string | null = null) {
+    setActiveSession(name)
+    setSelectedIdea(ideaId)
+    setExpanded(current => current.includes(name) ? current : [...current, name])
+  }
+
   const collaboratorActions = (
     <div className="collaborator-actions">
       {!currentIdea && <div className="layout-picker" role="group" aria-label="Card layout">
@@ -202,12 +216,12 @@ function App() {
                   <button type="button" className="folder-toggle" aria-label={`${open ? 'Collapse' : 'Expand'} ${session.name}`} aria-expanded={open} onClick={() => setExpanded(current => current.includes(session.name) ? current.filter(name => name !== session.name) : [...current, session.name])}>
                     {open ? <ChevronDown size={13} /> : <ChevronRight size={13} />}
                   </button>
-                  <button type="button" className="session-item" onClick={() => { setActiveSession(session.name); setSelectedIdea(null); setExpanded(current => current.includes(session.name) ? current : [...current, session.name]) }}>
+                  <button type="button" className="session-item" onClick={() => openSession(session.name)}>
                     {open ? <FolderOpen size={15} /> : <Folder size={15} />}<span className="session-name">{session.name}</span>
                   </button>
                 </div>
                 {open && <div className="folder-ideas">
-                  {children.map(idea => <button key={idea.id} type="button" className={`idea-nav-item ${activeSession === session.name && selectedIdea === idea.id ? 'active' : ''}`} aria-current={activeSession === session.name && selectedIdea === idea.id ? 'page' : undefined} title={idea.title} onClick={() => { setActiveSession(session.name); setSelectedIdea(idea.id) }}><AbstractSymbol /><span>{idea.title || 'Untitled idea'}</span></button>)}
+                  {children.map(idea => <button key={idea.id} type="button" className={`idea-nav-item ${activeSession === session.name && selectedIdea === idea.id ? 'active' : ''}`} aria-current={activeSession === session.name && selectedIdea === idea.id ? 'page' : undefined} title={idea.title} onClick={() => openSession(session.name, idea.id)}><AbstractSymbol /><span>{idea.title || 'Untitled idea'}</span></button>)}
                   {children.length === 0 && <p className="empty-folder">No ideas yet</p>}
                 </div>}
               </div>
