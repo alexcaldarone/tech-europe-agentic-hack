@@ -21,15 +21,16 @@ import {
   X,
 } from 'lucide-react'
 import './App.css'
-import repositoryIdeas from '../../data/ideas.json'
 import { AbstractSymbol, BrandShape, RecordingShape } from './BrandShape'
 import { EditableIdea } from './EditableIdea'
-import { mergeGeneratedIdeas, readWorkspace, workspaceKey } from './ideaWorkspace'
-import type { GeneratedIdea, Idea, Session } from './ideaWorkspace'
+import { foldIdeaUpdates, mergeGeneratedIdeas, readWorkspace, workspaceKey } from './ideaWorkspace'
+import type { Idea, Session } from './ideaWorkspace'
 import { useTranscription } from './useTranscription'
 
+declare const __IDEA_POLL_INTERVAL_MS__: number
+
 const initialSessions: Session[] = [
-  { name: 'Hackathon', date: 'Today', ideas: repositoryIdeas.ideas.length },
+  { name: 'Hackathon', date: 'Today', ideas: 0 },
   { name: 'Agent onboarding', date: 'Yesterday', ideas: 8 },
   { name: 'Community launch', date: 'Oct 08', ideas: 5 },
   { name: 'A better daily standup', date: 'Oct 04', ideas: 3 },
@@ -57,8 +58,10 @@ function App() {
   const [search, setSearch] = useState('')
   const [sessionIdeas, setSessionIdeas] = useState<Record<string, Idea[]>>(() => ({
     ...restored?.sessionIdeas,
-    Hackathon: mergeGeneratedIdeas(restored?.sessionIdeas.Hackathon || [], repositoryIdeas.ideas),
+    Hackathon: restored?.sessionIdeas.Hackathon || [],
   }))
+  // Bumped on reset so a poll that started before it cannot restore the previous session's ideas.
+  const ideaSession = useRef(0)
   const [expanded, setExpanded] = useState<string[]>(['Hackathon'])
   const [ideasError, setIdeasError] = useState('')
   const [layout, setLayout] = useState<'horizontal' | 'grid'>('horizontal')
@@ -66,10 +69,10 @@ function App() {
   const ideas = sessionIdeas[activeSession] || []
   const setIdeas = (update: (current: Idea[]) => Idea[]) => setSessionIdeas(current => ({ ...current, [activeSession]: update(current[activeSession] || []) }))
   const [selectedIdea, setSelectedIdea] = useState<string | null>(null)
-  const [savedIdeas, setSavedIdeas] = useState<string[]>([])
   const { transcript, recording, resetting, error, loaded, elapsedSeconds, startRecording, stopRecording, resetTranscript, exportTranscript } = useTranscription()
   const [transcriptOpen, setTranscriptOpen] = useState(false)
   const transcriptFeedRef = useRef<HTMLDivElement>(null)
+  const discussedCardRef = useRef<HTMLElement | null>(null)
   const transitioning = recording === 'connecting' || recording === 'saving' || resetting
 
   useEffect(() => {
@@ -91,12 +94,11 @@ function App() {
     let timer: ReturnType<typeof setTimeout>
     async function refresh() {
       try {
-        const base = (import.meta.env.VITE_ENRICHMENT_URL || '/api/enrichment').replace(/\/$/, '')
-        const response = await fetch(`${base}/ideas`, { signal: controller.signal })
+        const session = ideaSession.current
+        const response = await fetch('/api/pubsub/idea-updates.jsonl', { signal: controller.signal, cache: 'no-store' })
         if (!response.ok) throw new Error('Could not load generated ideas.')
-        const payload = await response.json() as GeneratedIdea[] | { ideas: GeneratedIdea[] }
-        const data = Array.isArray(payload) ? payload : payload.ideas
-        if (controller.signal.aborted) return
+        const data = foldIdeaUpdates(await response.text())
+        if (controller.signal.aborted || session !== ideaSession.current) return
         setSessionIdeas(current => ({ ...current, Hackathon: mergeGeneratedIdeas(current.Hackathon || [], data) }))
         const focused = data.find(idea => idea.is_currently_discussed)
         setFocusedIdeaId(focused ? `engine-${focused.id}` : null)
@@ -107,7 +109,7 @@ function App() {
           setIdeasError('Showing saved ideas. Live updates are unavailable; retrying…')
         }
       } finally {
-        if (!controller.signal.aborted) timer = setTimeout(refresh, 3000)
+        if (!controller.signal.aborted) timer = setTimeout(refresh, __IDEA_POLL_INTERVAL_MS__)
       }
     }
     void refresh()
@@ -160,12 +162,6 @@ function App() {
 
   const collaboratorActions = (
     <div className="collaborator-actions">
-      <div className="member-stack" aria-label="4 participants">
-        <span className="member-avatar avatar-one">AC</span>
-        <span className="member-avatar avatar-two">GC</span>
-        <span className="member-avatar avatar-three">MH</span>
-        <span className="member-more">+1</span>
-      </div>
       {!currentIdea && <div className="layout-picker" role="group" aria-label="Card layout">
         <button type="button" aria-label="Horizontal layout" title="Horizontal layout" aria-pressed={layout === 'horizontal'} onClick={() => setLayout('horizontal')}><Columns3 size={16} /></button>
         <button type="button" aria-label="Grid layout" title="Grid layout" aria-pressed={layout === 'grid'} onClick={() => setLayout('grid')}><LayoutGrid size={16} /></button>
@@ -256,6 +252,7 @@ function App() {
                 {ideas.map((idea, index) => (
                   <article
                     key={idea.id}
+                    ref={visibleFocusedIdeaId === idea.id ? discussedCardRef : undefined}
                     className={`idea-card ${activeSession === 'Hackathon' && focusedIdeaId === idea.id ? 'discussion-focus' : ''}`}
                     onClick={() => setSelectedIdea(idea.id)}
                   >
@@ -268,7 +265,6 @@ function App() {
                       <h3><button type="button" className="idea-title-button" onClick={() => setSelectedIdea(idea.id)}>{idea.title || 'Untitled idea'}</button></h3>
                       <p>{idea.summary}</p>
                       <div className="idea-card-footer">
-                        <div className="idea-authors"><span className="tiny-avatar avatar-one">AC</span><span className="tiny-avatar avatar-self">LL</span><span className="author-label">Alex + 2</span></div>
                         <button type="button" className="vote-button" aria-label={`Upvote, ${idea.votes} votes`} onClick={(event) => { event.stopPropagation(); setIdeas((current) => current.map((entry) => entry.id === idea.id ? { ...entry, votes: entry.votes + 1 } : entry)) }}>
                           <ArrowDown className="vote-arrow" size={14} /><span>{idea.votes}</span>
                         </button>
@@ -308,7 +304,14 @@ function App() {
             {recording === 'recording' || recording === 'saving' ? <Square size={13} fill="currentColor" /> : <Play size={14} fill="currentColor" />}
             <span>{recording === 'saving' ? 'Saving…' : recording === 'connecting' ? 'Connecting…' : recording === 'recording' ? 'Stop' : 'Start'}</span>
           </button>
-          <button type="button" className="record-control reset-control" disabled={recording !== 'stopped' || resetting} onClick={() => void resetTranscript()}>
+          <button type="button" className="record-control reset-control" disabled={recording !== 'stopped' || resetting} onClick={() => void resetTranscript().then(reset => {
+            if (!reset) return
+            // One transcript is one session: resetting it drops every idea on the board.
+            ideaSession.current++
+            setSessionIdeas(current => ({ ...current, Hackathon: [] }))
+            setFocusedIdeaId(null)
+            setSelectedIdea(null)
+          })}>
             {resetting ? 'Resetting…' : 'Reset transcript'}
           </button>
         </footer>
@@ -345,8 +348,7 @@ function App() {
           <div className="transcript-date"><span />TODAY<span /></div>
           {transcript.map((line, index) => (
             <article className={`transcript-line ${index === transcript.length - 1 && recording === 'recording' ? 'currently-speaking' : ''}`} key={index}>
-              <span className={`speaker-avatar ${line.initials === 'LL' ? 'avatar-self' : line.initials === 'AC' ? 'avatar-one' : line.initials === 'GC' ? 'avatar-two' : 'avatar-three'}`}>{line.initials}</span>
-              <div className="transcript-line-content"><div className="speaker-meta"><strong>{line.person}</strong><time>{line.time}</time></div><p>{line.text}</p></div>
+              <div className="transcript-line-content">{line.time && <time>{line.time}</time>}<p>{line.text}</p></div>
             </article>
           ))}
           {recording === 'recording' && <div className="transcript-capture"><span className="capture-avatar">···</span><span>Listening for the next thought</span><span className="capture-pulse" /></div>}

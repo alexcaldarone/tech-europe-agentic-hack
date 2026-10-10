@@ -10,6 +10,7 @@ import { extractAndSortProsCons } from '../agents/prosConsAgent.js';
 import { generateIdeaSummary } from '../agents/summaryAgent.js';
 import { generateDiagram } from '../agents/workflowAgent.js';
 import { generateSystemGraph } from '../agents/systemGraphAgent.js';
+import { GEMINI_MODEL } from '../geminiClient.js';
 import type { IdeaModel } from '../schemas.js';
 
 const __filename = fileURLToPath(import.meta.url);
@@ -97,7 +98,7 @@ enrichRouter.get('/health', (_req: Request, res: Response) => {
   res.json({
     status: 'healthy',
     timestamp: new Date().toISOString(),
-    engine: 'gemini-3.8-flash',
+    engine: GEMINI_MODEL,
     geminiKeyConfigured: hasKey,
     endpoints: [
       'POST /api/idea/summary (Distills fullBody into executive summary)',

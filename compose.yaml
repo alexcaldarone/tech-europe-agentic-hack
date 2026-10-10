@@ -11,6 +11,8 @@ services:
     volumes:
       - ./frontend:/app/frontend
       - frontend_dependencies:/app/frontend/node_modules
+      - ./configs:/app/configs:ro
+      - ./pubsub:/app/pubsub:ro
     init: true
     depends_on:
       transcriber:
@@ -25,7 +27,8 @@ services:
     environment:
       GRADIUM_API_KEY: ${GRADIUM_API_KEY:?Set GRADIUM_API_KEY in the root .env}
     volumes:
-      - ${DATA_DIR:-./data}:/app/data
+      - ./configs:/app/configs:ro
+      - ./pubsub:/app/pubsub
     stop_grace_period: 20s
     healthcheck:
       test: ["CMD", ".venv/bin/python", "-c", "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8000/health', timeout=2)"]
@@ -38,26 +41,23 @@ services:
     build:
       context: .
       target: engine
+    init: true
     environment:
       GEMINI_API_KEY: ${GEMINI_API_KEY:?Set GEMINI_API_KEY in the root .env}
-      GEMINI_MODEL: ${GEMINI_MODEL:-gemini-3.8-flash}
     volumes:
-      - ${DATA_DIR:-./data}:/app/data
-    depends_on:
-      transcriber:
-        condition: service_healthy
-      enricher:
-        condition: service_healthy
+      - ./configs:/app/configs:ro
+      - ./pubsub:/app/pubsub
 
   enricher:
     build:
       context: .
       target: enricher
+    init: true
     environment:
       GEMINI_API_KEY: ${GEMINI_API_KEY:?Set GEMINI_API_KEY in the root .env}
-      GEMINI_MODEL: ${GEMINI_MODEL:-gemini-3.8-flash}
     volumes:
-      - ${DATA_DIR:-./data}:/app/data
+      - ./configs:/app/configs:ro
+      - ./data:/app/data
     healthcheck:
       test: ["CMD", "node", "-e", "fetch('http://127.0.0.1:3000/api/health').then(r => { if (!r.ok) process.exit(1) }).catch(() => process.exit(1))"]
       interval: 5s

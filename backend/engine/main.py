@@ -5,6 +5,7 @@ import sys
 import time
 from pathlib import Path
 
+import yaml
 from dotenv import load_dotenv
 from google import genai
 from google.genai import types
@@ -53,13 +54,6 @@ class ChunkIdeas(BaseModel):
     ideas: list[IdeaUpdate]
 
 
-def init_ideas(ideas_path: Path) -> None:
-    ideas_path.parent.mkdir(parents=True, exist_ok=True)
-    try:
-        with ideas_path.open("x", encoding="utf-8") as output:
-            json.dump({"ideas": []}, output)
-    except FileExistsError:
-        pass
 def reset_topic(topic_path: Path) -> None:
     topic_path.parent.mkdir(parents=True, exist_ok=True)
     topic_path.write_text("")
@@ -75,27 +69,27 @@ def publish(topic_path: Path, messages: list[dict]) -> None:
         os.close(fd)
 
 
-def save_ideas(ideas: list[dict], ideas_path: Path) -> None:
-    # Write to a temp file and rename, so readers never see a half-written file.
-    tmp_path = ideas_path.with_suffix(".json.tmp")
-    tmp_path.write_text(json.dumps({"ideas": ideas}, indent=4, ensure_ascii=False))
-    os.replace(tmp_path, ideas_path)
-
-
 def file_identity(path: Path) -> tuple[int, int]:
     stat = path.stat()
     return stat.st_dev, stat.st_ino
 
 
 def read_transcript(path: Path) -> tuple[tuple[int, int], str]:
-    # Read identity from the open file so a concurrent Reset cannot mix generations.
+    # Read identity from the open file so a concurrent reset cannot mix generations.
     with path.open(encoding="utf-8", errors="replace") as source:
         stat = os.fstat(source.fileno())
         text = source.read()
-    # Direct file readers must wait for a complete newline-terminated batch.
+    # The transcriber appends whole lines; wait for the trailing newline.
     return (stat.st_dev, stat.st_ino), text[:text.rfind("\n") + 1]
+
+
 def to_message(idea_id: str, idea: dict) -> dict:
-    return {"id": idea_id, "title": idea["title"], "short-summary": idea["summary"]}
+    return {
+        "id": idea_id,
+        "title": idea["title"],
+        "short-summary": idea["summary"],
+        "is-currently-discussed": idea["is_currently_discussed"],
+    }
 
 
 def cut_chunk(pending: str, chunk_chars: int) -> str | None:
@@ -137,8 +131,10 @@ def extract_ideas(
 
 
 def merge_ideas(ideas: dict[str, dict], updates: list[IdeaUpdate]) -> tuple[dict[str, dict], list[str]]:
+    """Return the merged ideas and the ids discussed in the chunk. At most one idea keeps the focus."""
     merged = dict(ideas)
     touched_ids = []
+    focus_id = None
 
     for update in updates:
         if update.id in merged:
@@ -149,9 +145,13 @@ def merge_ideas(ideas: dict[str, dict], updates: list[IdeaUpdate]) -> tuple[dict
             idea_id = f"idea-{len(merged) + 1}"
             logger.info("  + %s %s", idea_id, update.title)
         merged[idea_id] = {"title": update.title, "summary": update.summary}
+        if update.is_currently_discussed:
+            focus_id = idea_id
         if idea_id not in touched_ids:
             touched_ids.append(idea_id)
 
+    for idea_id, idea in merged.items():
+        merged[idea_id] = {**idea, "is_currently_discussed": idea_id == focus_id}
     return merged, touched_ids
 
 
@@ -161,32 +161,23 @@ def main(
     classified_chunks_path: Path,
     model: str,
     chunk_chars: int,
+    idle_flush_s: float,
     poll_interval_s: float,
     max_retries: int,
     request_timeout_s: float,
 ) -> None:
     load_dotenv(REPO_ROOT / ".env")
-    model = os.getenv("GEMINI_MODEL") or model
     client = genai.Client(
         api_key=os.environ["GEMINI_API_KEY"],
         http_options=types.HttpOptions(timeout=int(request_timeout_s * 1000)),
     )
     logger.info(
-        "engine started · model %s · chunk %d chars · poll %.1fs · retries %d · timeout %gs",
-        model, chunk_chars, poll_interval_s, max_retries, request_timeout_s,
+        "engine started · model %s · chunk %d chars · idle flush %gs · poll %.1fs · retries %d · timeout %gs",
+        model, chunk_chars, idle_flush_s, poll_interval_s, max_retries, request_timeout_s,
     )
-    init_ideas(ideas_path)
     transcript_path.parent.mkdir(parents=True, exist_ok=True)
     transcript_path.touch(exist_ok=True)
-    logger.info("using existing ideas in %s", ideas_path)
 
-    def start_session() -> None:
-        # Each session starts fresh: subscribers see the topics shrink and reset themselves.
-        for topic_path in (idea_updates_path, classified_chunks_path):
-            reset_topic(topic_path)
-            logger.info("reset %s", topic_path.relative_to(REPO_ROOT))
-
-    start_session()
     ideas: dict[str, dict] = {}
     offset = 0
     identity = None
@@ -195,34 +186,30 @@ def main(
     chunk_number = 1
     last_waiting_chars = None
     while True:
-        time.sleep(poll_interval_s)
         try:
-            current_identity, text = read_transcript(transcript_path)
-            if current_identity != identity:
+            current_identity, transcript = read_transcript(transcript_path)
+            if current_identity != identity or len(transcript) < offset:
+                # First tick, or the transcript was reset: one transcript is one session, so start fresh.
+                # Subscribers see the topics shrink and reset themselves.
+                logger.info("new transcript · starting a new session")
+                for topic_path in (idea_updates_path, classified_chunks_path):
+                    reset_topic(topic_path)
                 identity = current_identity
-                offset = 0
-                previous_length = 0
+                ideas, offset, previous_length, chunk_number = {}, 0, 0, 1
                 last_text_at = time.monotonic()
-                logger.info("transcript replaced · reading from the beginning")
-            if len(text) != previous_length:
-                previous_length = len(text)
+            if len(transcript) != previous_length:
+                previous_length = len(transcript)
                 last_text_at = time.monotonic()
-            pending = text[offset:]
-            transcript = transcript_path.read_text(errors="replace")
-            if len(transcript) < offset:
-                # The transcriber cleared the transcript: a new recording is a new session.
-                logger.info("transcript shrank below offset · starting a new session")
-                start_session()
-                ideas, offset, chunk_number = {}, 0, 1
             pending = transcript[offset:]
             chunk = cut_chunk(pending, chunk_chars)
-            if chunk is None and pending and time.monotonic() - last_text_at >= 10:
+            if chunk is None and pending and time.monotonic() - last_text_at >= idle_flush_s:
                 chunk = pending
             if chunk is None:
                 # Log only when the pending count changes, to keep idle ticks quiet.
                 if len(pending) != last_waiting_chars:
                     logger.info("waiting · %d/%d new chars", len(pending), chunk_chars)
                     last_waiting_chars = len(pending)
+                time.sleep(poll_interval_s)
                 continue
             last_waiting_chars = None
 
@@ -230,41 +217,48 @@ def main(
                 "chunk #%d · %s · offset %s → %s",
                 chunk_number, plural(len(chunk), "char"), f"{offset:,}", f"{offset + len(chunk):,}",
             )
-            updates = extract_ideas(client, model, load_ideas(ideas_path), chunk, max_retries)
-
-            # Re-read right before writing to keep edits made by enrichment during the API call.
-            merged_ideas = merge_ideas(load_ideas(ideas_path), updates)
+            updates = extract_ideas(client, model, ideas, chunk, max_retries)
             if file_identity(transcript_path) != identity:
-                logger.info("discarded response · source transcript was reset")
+                logger.info("  discarded response · transcript was reset during the call")
                 continue
-            save_ideas(merged_ideas, ideas_path)
-            logger.info("  saved · %s total", plural(len(merged_ideas), "idea"))
+            merged_ideas, touched_ids = merge_ideas(ideas, updates)
+            # Ideas that lost the focus without being discussed are republished so the topic stays consistent.
+            refocused_ids = [
+                idea_id for idea_id in ideas
+                if idea_id not in touched_ids
+                and merged_ideas[idea_id]["is_currently_discussed"] != ideas[idea_id]["is_currently_discussed"]
+            ]
+
+            # Publish idea updates first, so the frontend knows an idea before enrichment does.
+            publish(idea_updates_path, [to_message(idea_id, merged_ideas[idea_id]) for idea_id in touched_ids + refocused_ids])
+            publish(
+                classified_chunks_path,
+                [{"chunk": chunk, "ideas": [to_message(idea_id, merged_ideas[idea_id]) for idea_id in touched_ids]}],
+            )
+            logger.info("  published · %s touched · %s total", plural(len(touched_ids), "idea"), plural(len(merged_ideas), "idea"))
 
             ideas = merged_ideas
             offset += len(chunk)
             chunk_number += 1
         except Exception as error:
             logger.error("  ✗ tick failed, retrying chunk #%d next tick · %s: %s", chunk_number, type(error).__name__, error)
+            time.sleep(poll_interval_s)
 
 
 if __name__ == "__main__":
-    TRANSCRIPT_PATH = REPO_ROOT / "pubsub" / "transcript.txt"
-    IDEA_UPDATES_PATH = REPO_ROOT / "pubsub" / "idea-updates.jsonl"
-    CLASSIFIED_CHUNKS_PATH = REPO_ROOT / "pubsub" / "classified-chunks.jsonl"
-    MODEL = "gemini-3.8-flash"
-    CHUNK_CHARS = 500  # Characters consumed per Gemini call.
-    POLL_INTERVAL_S = 3.0
-    MAX_RETRIES = 3  # Attempts per Gemini call before giving up on the tick.
-    REQUEST_TIMEOUT_S = 30.0
+    config = yaml.safe_load((REPO_ROOT / "configs" / "default.yaml").read_text())
+    pubsub_dir = REPO_ROOT / config["pubsub"]["dir"]
+    engine = config["engine"]
 
     setup_logging()
     main(
-        transcript_path=TRANSCRIPT_PATH,
-        idea_updates_path=IDEA_UPDATES_PATH,
-        classified_chunks_path=CLASSIFIED_CHUNKS_PATH,
-        model=MODEL,
-        chunk_chars=CHUNK_CHARS,
-        poll_interval_s=POLL_INTERVAL_S,
-        max_retries=MAX_RETRIES,
-        request_timeout_s=REQUEST_TIMEOUT_S,
+        transcript_path=pubsub_dir / config["pubsub"]["transcript"],
+        idea_updates_path=pubsub_dir / config["pubsub"]["idea_updates"],
+        classified_chunks_path=pubsub_dir / config["pubsub"]["classified_chunks"],
+        model=engine["model"],
+        chunk_chars=engine["chunk_chars"],
+        idle_flush_s=engine["idle_flush_s"],
+        poll_interval_s=engine["poll_interval_s"],
+        max_retries=engine["max_retries"],
+        request_timeout_s=engine["request_timeout_s"],
     )

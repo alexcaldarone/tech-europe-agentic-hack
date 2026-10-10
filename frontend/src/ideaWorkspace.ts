@@ -16,6 +16,25 @@ export type Idea = {
   thumbnail?: string | null
   locallyEdited?: boolean
 }
+// One idea-updates.jsonl line: a partial idea from the engine or enrichment, keyed by id.
+type IdeaUpdateMessage = { id: string; 'short-summary'?: string; 'is-currently-discussed'?: boolean; [field: string]: unknown }
+
+export function foldIdeaUpdates(topic: string): GeneratedIdea[] {
+  const ideas = new Map<string, GeneratedIdea>()
+  // A publisher may be mid-write: only complete lines are messages.
+  for (const line of topic.slice(0, topic.lastIndexOf('\n') + 1).split('\n')) {
+    if (!line.trim()) continue
+    const { id, 'short-summary': summary, 'is-currently-discussed': discussed, ...fields } = JSON.parse(line) as IdeaUpdateMessage
+    ideas.set(id, {
+      ...(ideas.get(id) || { id, title: '', summary: '' }),
+      ...fields,
+      ...(summary !== undefined && { summary }),
+      ...(discussed !== undefined && { is_currently_discussed: discussed }),
+    })
+  }
+  return [...ideas.values()]
+}
+
 export type Session = { name: string; date: string; ideas: number }
 export type Workspace = { sessions: Session[]; sessionIdeas: Record<string, Idea[]> }
 export const workspaceKey = 'brainy-storm.workspace.v1'

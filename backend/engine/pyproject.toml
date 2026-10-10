@@ -9,4 +9,5 @@ dependencies = [
     "ipykernel>=7.4.0",
     "pydantic>=2.14.0",
     "python-dotenv>=1.2.4",
+    "pyyaml>=6.0",
 ]

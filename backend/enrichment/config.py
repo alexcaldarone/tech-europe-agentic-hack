@@ -1,5 +1,7 @@
 import os
 from pathlib import Path
+
+import yaml
 from dotenv import load_dotenv
 
 # Paths
@@ -19,16 +21,17 @@ GEMINI_API_KEY = os.getenv("GEMINI_API_KEY", "")
 OPENAI_API_KEY = os.getenv("OPENAI_API_KEY", "")
 TAVILY_API_KEY = os.getenv("TAVILY_API_KEY", "")
 
+# Non-secret settings live in configs/default.yaml.
+_config = yaml.safe_load((PROJECT_ROOT / "configs" / "default.yaml").read_text())["enrichment"]
+
 # LLM Configurations
-DEFAULT_PROVIDER = os.getenv("DEFAULT_PROVIDER", "auto")  # "gemini", "openai", "auto", "mock"
-GEMINI_MODEL = os.getenv("GEMINI_MODEL", "gemini-3.8-flash")
-GEMINI_FAST_MODEL = os.getenv("GEMINI_FAST_MODEL", "gemini-flash-lite-latest")
-GROUNDED_SEARCH_TIMEOUT_SECONDS = float(
-    os.getenv("GROUNDED_SEARCH_TIMEOUT_SECONDS", "20")
-)
-OPENAI_MODEL = os.getenv("OPENAI_MODEL", "gpt-4o-mini")
-LLM_TIMEOUT_SECONDS = float(os.getenv("LLM_TIMEOUT_SECONDS", "120"))
+DEFAULT_PROVIDER = _config["default_provider"]  # "gemini", "openai", "auto", "mock"
+GEMINI_MODEL = _config["model"]
+GEMINI_FAST_MODEL = _config["fast_model"]
+GROUNDED_SEARCH_TIMEOUT_SECONDS = float(_config["grounded_search_timeout_s"])
+OPENAI_MODEL = _config["openai_model"]
+LLM_TIMEOUT_SECONDS = float(_config["llm_timeout_s"])
 
 # Microservice Server Config
-SERVER_HOST = os.getenv("ENRICHMENT_HOST", "0.0.0.0")
-SERVER_PORT = int(os.getenv("ENRICHMENT_PORT", "8001"))
+SERVER_HOST = _config["host"]
+SERVER_PORT = int(_config["port"])

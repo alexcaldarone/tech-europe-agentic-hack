@@ -1,0 +1,36 @@
+# Non-secret configuration shared by every service. Secrets live in the root .env.
+# Paths are relative to the repository root.
+
+pubsub:
+  dir: pubsub
+  transcript: transcript.txt
+  classified_chunks: classified-chunks.jsonl
+  idea_updates: idea-updates.jsonl
+
+transcriber:
+  language: en
+  write_interval_s: 5  # Append one transcript line per interval.
+  drain_s: 5  # Wait for final Gradium results after Stop.
+
+engine:
+  model: gemini-3.8-flash
+  chunk_chars: 500  # Characters consumed per Gemini call.
+  idle_flush_s: 10  # Send a shorter chunk after this long without new text.
+  poll_interval_s: 3.0
+  max_retries: 3  # Attempts per Gemini call before giving up on the tick.
+  request_timeout_s: 30.0
+
+enrichment:
+  # Node service (in Compose).
+  model: gemini-3.8-flash
+  # Python service (not in Compose).
+  default_provider: auto  # gemini, openai, auto or mock; auto prefers Gemini.
+  fast_model: gemini-flash-lite-latest
+  openai_model: gpt-4o-mini
+  grounded_search_timeout_s: 20
+  llm_timeout_s: 120
+  host: 0.0.0.0
+  port: 8001
+
+frontend:
+  poll_interval_ms: 1000  # How often the board rereads idea-updates.jsonl.

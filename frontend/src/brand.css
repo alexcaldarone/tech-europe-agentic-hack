@@ -76,7 +76,6 @@ h1, h2, h3, .wordmark, .empty-board strong,
 .primary-control:hover { color: #fff; background: #3540dd; border-color: #3540dd; }
 .primary-control:disabled { opacity: 0.6; cursor: wait; }
 .transcript-line-content p { color: #666; font-size: 12px; font-weight: 400; }
-.speaker-meta strong { color: #404040; font-size: 10px; }
 ::selection { color: #171717; background: var(--brand-aqua); }
 button:focus-visible, a:focus-visible, input:focus-visible { outline-color: var(--brand-blue); }
 @keyframes brand-listen { from { transform: scaleY(0.4); } to { transform: scaleY(1); } }
@@ -98,11 +97,7 @@ button:focus-visible, a:focus-visible, input:focus-visible { outline-color: var(
 }
 
 /* People and idea symbols carry the expressive brand colors. */
-.avatar-one { color: #fff; background: var(--brand-blue); }
-.avatar-two { color: #171717; background: var(--brand-aqua); }
-.avatar-three { color: #171717; background: var(--brand-orange); }
-.profile-avatar, .avatar-self { color: #171717; background: var(--brand-pink); }
-.member-more { color: #171717; background: var(--brand-yellow); }
+.profile-avatar { color: #171717; background: var(--brand-pink); }
 .abstract-symbol { display: inline-block; width: 19px; height: 19px; flex-shrink: 0; color: var(--brand-blue); }
 .idea-nav-item .abstract-symbol { width: 15px; height: 15px; }
 .idea-nav-item:nth-child(3n + 2) .abstract-symbol { color: #a83cf4; }

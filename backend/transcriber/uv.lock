@@ -842,6 +842,7 @@ dependencies = [
     { name = "fastapi" },
     { name = "gradium" },
     { name = "python-dotenv" },
+    { name = "pyyaml" },
     { name = "uvicorn", extra = ["standard"] },
 ]
 
@@ -850,6 +851,7 @@ requires-dist = [
     { name = "fastapi", specifier = ">=0.115" },
     { name = "gradium", specifier = ">=0.6.4" },
     { name = "python-dotenv", specifier = ">=1.2.4" },
+    { name = "pyyaml", specifier = ">=6.0" },
     { name = "uvicorn", extras = ["standard"], specifier = ">=0.34" },
 ]
 

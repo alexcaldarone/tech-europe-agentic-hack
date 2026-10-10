@@ -1,11 +1,11 @@
 import { useEffect, useRef, useState } from 'react'
 
-export type TranscriptLine = { person: string; initials: string; time: string; text: string }
+export type TranscriptLine = { time: string; text: string }
 type Status = 'stopped' | 'connecting' | 'recording' | 'saving'
 const base = (import.meta.env.VITE_TRANSCRIBER_URL || '/api/transcriber').replace(/\/$/, '')
 
 function transcriptLine(text: string, time = ''): TranscriptLine {
-  return { person: 'Room', initials: 'RM', time, text }
+  return { time, text }
 }
 
 export function useTranscription() {
@@ -205,7 +205,7 @@ export function useTranscription() {
   }
 
   async function resetTranscript() {
-    if (busy.current) return
+    if (busy.current) return false
     busy.current = true
     setResetting(true)
     setError('')
@@ -217,8 +217,10 @@ export function useTranscription() {
         throw new Error(data.detail || 'Could not reset transcript.')
       }
       if (mounted.current) { setTranscript([]); setElapsedSeconds(0); setLoaded(true) }
+      return true
     } catch (err) {
       if (mounted.current) setError(err instanceof Error ? err.message : 'Could not reset transcript.')
+      return false
     } finally {
       busy.current = false
       if (mounted.current) setResetting(false)

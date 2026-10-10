@@ -14,11 +14,11 @@ cp .env.example .env
 docker compose up --build
 ```
 
-Open **http://localhost:5173** and allow microphone access. `GEMINI_MODEL` is optional; the existing default is `gemini-3.8-flash`. Use a model available to your API key if necessary.
+Open **http://localhost:5173** and allow microphone access. `.env` holds secrets only; every other setting (models, chunk size, intervals, topic paths) lives in `configs/default.yaml`.
 
 - **Start** captures your browser microphone and appends to the existing transcript.
 - **Stop** releases the microphone, receives final Gradium results for up to five seconds, and saves remaining text. Wait for **Saving…** to finish before starting again.
-- **Reset transcript** clears the transcript and elapsed time while stopped. Generated ideas stay on the board.
+- **Reset transcript** starts a new session while stopped: it clears the transcript, every pubsub topic and all ideas on the board.
 - **Export transcript** downloads the persisted plain text, including all completed batches.
 
 Only one recording can run at a time. Everyone using the prototype shares one room; the sidebar's other brainstorms are still UI examples. Speech is labelled **Room**; speaker identification is not included.
@@ -29,14 +29,15 @@ Compose runs four containers: Vite/React, the single-worker Python transcriber, 
 
 The frontend uses Vite for the hackathon demo and mounts `./frontend`, so source edits reload immediately. Container dependencies live in their own volume, separate from your Mac/Linux `node_modules`. Startup runs `npm ci` against the current lockfile so a teammate's dependency changes are picked up after restarting the frontend. Backend source changes require `docker compose up --build` again.
 
-All backend containers share `./data` at `/app/data`:
+Services communicate only through files in `./pubsub`, mounted at `/app/pubsub` (see `GIACOMO-AGENTS.md`):
 
-- `transcript.txt`: one plain-text line per nonempty five-second batch, plus the final partial batch on Stop. Starting or restarting never clears it. Direct readers must retain an incomplete trailing line until a later read.
-- `ideas.json`: generated ideas, initialized only if missing. Reset and container restarts preserve it.
+- `transcript.txt`: written by the transcriber, one plain-text line per nonempty batch, plus the final partial batch on Stop. Readers consume only newline-terminated lines.
+- `idea-updates.jsonl`: written by the engine (and, later, enrichment); the frontend folds it by idea `id` to build the board.
+- `classified-chunks.jsonl`: written by the engine for enrichment.
 
-The engine polls every three seconds. It processes 500-character chunks, or a smaller chunk after ten seconds without new transcript text. Allow that idle delay plus Gemini response time for short recordings. Reset atomically replaces the transcript; the engine restarts its read offset and discards responses from the old file. On process restart the engine rereads the retained transcript using the existing ideas as context.
+One transcript is one session. The engine starts a new session at startup and whenever the transcript is replaced: it truncates its topics, forgets its in-memory ideas and discards in-flight Gemini responses. On restart it rereads the retained transcript and regenerates the ideas.
 
-The frontend polls the Node API for ideas every three seconds. Enrichment endpoints are available under `/api/enrichment/idea/*`, but enrichment is **not automatically invoked** and there are no enrichment buttons in this change. The alternative Python enrichment API is not part of Compose.
+The browser reads `idea-updates.jsonl` through the Vite dev server at `/api/pubsub/idea-updates.jsonl`. Node enrichment endpoints are available under `/api/enrichment/idea/*`, but enrichment does not yet subscribe to `classified-chunks.jsonl`. The alternative Python enrichment API is not part of Compose. Both still use `./data`.
 
 Containers do not access the host microphone. The browser sends 24 kHz mono signed 16-bit PCM. Localhost supports microphone access; a remote deployment would need HTTPS and appropriate access control.
 
@@ -57,7 +58,7 @@ curl http://localhost:5173/api/transcriber/health
 curl http://localhost:5173/api/enrichment/health
 ```
 
-Keep real keys in `.env`; they are passed only to the appropriate backend containers and excluded from image builds. To use an isolated data directory, set `DATA_DIR=/absolute/path/to/data` when running Compose. Do not run another stack or local transcriber against the same files concurrently.
+Keep real keys in `.env`; they are passed only to the appropriate backend containers and excluded from image builds. Do not run another stack or local service against the same `pubsub/` files concurrently.
 
 ## Local development
 
@@ -72,7 +73,7 @@ uv run python main.py
 
 # backend/enrichment
 npm ci
-node --env-file=../../.env --import tsx server.ts
+node --import tsx server.ts  # loads the root .env
 
 # frontend
 npm ci
