@@ -4,20 +4,22 @@ import {
   Columns3,
   LayoutGrid,
   AudioLines,
-  ChevronDown,
   Clock3,
+  ChevronDown,
+  ChevronRight,
   Command,
-  FileText,
   Folder,
   FolderOpen,
-  ChevronRight,
+  Search,
+  FileText,
   Info,
+  LoaderCircle,
   MoreHorizontal,
   Play,
+  Pause,
+  RotateCcw,
+  Download,
   Plus,
-  Search,
-  Share2,
-  Square,
   X,
 } from 'lucide-react'
 import './App.css'
@@ -37,10 +39,10 @@ const initialSessions: Session[] = [
   { name: 'A better daily standup', date: 'Oct 04', ideas: 3 },
 ]
 
-function InfoBanner({ message, role = 'status' }: { message: string; role?: 'status' | 'alert' }) {
+function InfoBanner({ message, role = 'status', loading = false }: { message: string; role?: 'status' | 'alert'; loading?: boolean }) {
   const [dismissed, setDismissed] = useState(false)
   if (dismissed) return null
-  return <div className="info-banner" role={role}><Info size={16} aria-hidden="true" /><span>{message}</span><button type="button" aria-label="Dismiss notification" onClick={() => setDismissed(true)}><X size={16} /></button></div>
+  return <div className="info-banner" role={role}><span className="info-banner-content">{loading ? <LoaderCircle className="banner-spinner" size={16} aria-hidden="true" /> : <Info size={16} aria-hidden="true" />}<span>{message}</span></span><button type="button" aria-label="Dismiss notification" onClick={() => setDismissed(true)}><X size={16} /></button></div>
 }
 
 function thumbnailUrl(thumbnail?: string | null) {
@@ -65,20 +67,24 @@ function App() {
     ...restored?.sessionIdeas,
     Hackathon: restored?.sessionIdeas.Hackathon || [],
   }))
-  // Bumped on reset so a poll that started before it cannot restore the previous session's ideas.
-  const ideaSession = useRef(0)
   const [expanded, setExpanded] = useState<string[]>(['Hackathon'])
+  const [restarting, setRestarting] = useState(false)
+  const [restartError, setRestartError] = useState('')
+  const restartDialog = useRef<HTMLDialogElement>(null)
+  const pollingGeneration = useRef(0)
+  const resetInProgress = useRef(false)
   const [ideasError, setIdeasError] = useState('')
+  const [ideasLoading, setIdeasLoading] = useState(true)
   const [layout, setLayout] = useState<'horizontal' | 'grid'>('horizontal')
   const [focusedIdeaId, setFocusedIdeaId] = useState<string | null>(null)
-  const discussedCardRef = useRef<HTMLElement | null>(null)
   const ideas = sessionIdeas[activeSession] || []
   const setIdeas = (update: (current: Idea[]) => Idea[]) => setSessionIdeas(current => ({ ...current, [activeSession]: update(current[activeSession] || []) }))
   const [selectedIdea, setSelectedIdea] = useState<string | null>(null)
-  const { transcript, recording, resetting, error, loaded, elapsedSeconds, startRecording, stopRecording, resetTranscript, exportTranscript } = useTranscription()
+  const { transcript, recording, error, loaded, elapsedSeconds, startRecording, stopRecording, resetMemory, exportTranscript } = useTranscription()
   const [transcriptOpen, setTranscriptOpen] = useState(false)
   const transcriptFeedRef = useRef<HTMLDivElement>(null)
-  const transitioning = recording === 'connecting' || recording === 'saving' || resetting
+  const discussedCardRef = useRef<HTMLElement | null>(null)
+  const transitioning = recording === 'connecting' || recording === 'saving' || restarting
 
   useEffect(() => {
     try {
@@ -99,25 +105,29 @@ function App() {
     let timer: ReturnType<typeof setTimeout>
     let refreshDelay = __IDEA_POLL_INTERVAL_MS__
     async function refresh() {
+      if (resetInProgress.current) { timer = setTimeout(refresh, __IDEA_POLL_INTERVAL_MS__); return }
+      const generation = pollingGeneration.current
       try {
-        const session = ideaSession.current
         const response = await fetch('/api/pubsub/idea-updates.jsonl', { signal: controller.signal, cache: 'no-store' })
         if (!response.ok) throw new Error('Could not load generated ideas.')
         const data = foldIdeaUpdates(await response.text())
-        if (controller.signal.aborted || session !== ideaSession.current) return
+        if (controller.signal.aborted || generation !== pollingGeneration.current) return
         setSessionIdeas(current => ({ ...current, Hackathon: mergeGeneratedIdeas(current.Hackathon || [], data) }))
         const focused = data.find(idea => idea.is_currently_discussed)
         setFocusedIdeaId(focused ? `engine-${focused.id}` : null)
         setIdeasError('')
         refreshDelay = __IDEA_POLL_INTERVAL_MS__
       } catch {
-        if (!controller.signal.aborted) {
+        if (!controller.signal.aborted && generation === pollingGeneration.current) {
           refreshDelay = Math.min(refreshDelay * 2, 30000)
           setFocusedIdeaId(null)
           setIdeasError('Showing saved ideas. Live updates are unavailable; retrying…')
         }
       } finally {
-        if (!controller.signal.aborted) timer = setTimeout(refresh, refreshDelay)
+        if (!controller.signal.aborted) {
+          setIdeasLoading(false)
+          timer = setTimeout(refresh, refreshDelay)
+        }
       }
     }
     void refresh()
@@ -145,6 +155,37 @@ function App() {
   const minutes = String(Math.floor(elapsedSeconds / 60)).padStart(2, '0')
   const seconds = String(elapsedSeconds % 60).padStart(2, '0')
 
+  function downloadMemory() {
+    const url = URL.createObjectURL(new Blob([JSON.stringify({ exportedAt: new Date().toISOString(), sessions, sessionIdeas, transcript }, null, 2)], { type: 'application/json' }))
+    const link = document.createElement('a')
+    link.href = url
+    link.download = 'brainstorm-memory.json'
+    link.click()
+    setTimeout(() => URL.revokeObjectURL(url), 1000)
+  }
+
+  async function restartBrainstorm() {
+    resetInProgress.current = true
+    setRestarting(true)
+    setRestartError('')
+    pollingGeneration.current += 1
+    try {
+      await resetMemory()
+      setSessionIdeas(current => ({ ...current, Hackathon: [] }))
+      setActiveSession('Hackathon')
+      setSelectedIdea(null)
+      setFocusedIdeaId(null)
+      restartDialog.current?.close()
+      await startRecording()
+    } catch (error) {
+      setRestartError(error instanceof Error ? error.message : 'Could not restart. Please try again.')
+    } finally {
+      pollingGeneration.current += 1
+      resetInProgress.current = false
+      setRestarting(false)
+    }
+  }
+
   function createSession() {
     const name = `New brainstorm ${sessions.length}`
     setSessions((current) => [{ name, date: 'Just now', ideas: 0 }, ...current])
@@ -165,7 +206,6 @@ function App() {
     }
     setIdeas((current) => [...current, nextIdea])
     setSelectedIdea(nextIdea.id)
-    setExpanded(current => current.includes(activeSession) ? current : [...current, activeSession])
   }
 
   function openSession(name: string, ideaId: string | null = null) {
@@ -180,13 +220,23 @@ function App() {
         <button type="button" aria-label="Horizontal layout" title="Horizontal layout" aria-pressed={layout === 'horizontal'} onClick={() => setLayout('horizontal')}><Columns3 size={16} /></button>
         <button type="button" aria-label="Grid layout" title="Grid layout" aria-pressed={layout === 'grid'} onClick={() => setLayout('grid')}><LayoutGrid size={16} /></button>
       </div>}
-      <button type="button" className="icon-button share-button" aria-label="Share session"><Share2 size={16} /></button>
       <button type="button" className="icon-button transcript-toggle" onClick={() => setTranscriptOpen(true)} aria-label="Open transcript"><AudioLines size={16} /></button>
     </div>
   )
 
   return (
     <div className="app-shell">
+      <dialog ref={restartDialog} className="restart-dialog" aria-labelledby="restart-title" onCancel={event => { if (restarting) event.preventDefault() }}>
+        <button type="button" className="icon-button restart-dialog-close" aria-label="Cancel restart" disabled={restarting} onClick={() => restartDialog.current?.close()}><X size={18} /></button>
+        <h2 id="restart-title">Restart brainstorm?</h2>
+        <p>Are you sure you want to clear the memory and start over?</p>
+        <p>This clears the Hackathon ideas and the transcript. Other brainstorms are kept. Download your memory first if you want to keep a copy.</p>
+        {restartError && <p role="alert">{restartError}</p>}
+        <div className="restart-actions">
+          <button className="record-control primary-control" disabled={restarting} onClick={() => void restartBrainstorm()}>{restarting ? 'Restarting…' : 'Clear memory and restart'}</button>
+          <button className="outline-button" disabled={restarting} onClick={downloadMemory}><Download size={14} /> Download memory</button>
+        </div>
+      </dialog>
       <aside className="session-sidebar" aria-label="Brainstorming sessions">
         <div className="wordmark">brainy storm</div>
         <button type="button" className="new-session-button" onClick={createSession} aria-label="New brainstorm">
@@ -241,10 +291,10 @@ function App() {
       <main className="main-column">
         <section className={`board-scroll ${!currentIdea && layout === 'horizontal' ? 'horizontal-board' : ''}`}>
           <div className="board-content">
-            {ideasError && <InfoBanner key={ideasError} message={ideasError} />}
-            <InfoBanner message="Ideas are grouped as your team explores the topic." />
+            {(ideasLoading || ideasError) && <InfoBanner key={ideasError || 'ideas-loading'} message={ideasError || 'Loading ideas…'} loading />}
             {currentIdea ? <article className="idea-page">
-              <div className="idea-page-toolbar"><button type="button" className="text-button" onClick={() => setSelectedIdea(null)}>← Back to {activeSession}</button>{collaboratorActions}</div>
+              <div className="idea-page-banner"><BrandShape variant={ideas.findIndex(idea => idea.id === currentIdea.id) % 6} /></div>
+              <div className="idea-page-toolbar"><button type="button" className="idea-back-button" onClick={() => setSelectedIdea(null)}>← Back to {activeSession}</button>{collaboratorActions}</div>
               <EditableIdea key={currentIdea.id} idea={currentIdea} storageError={storageError} onChange={fields => setIdeas(current => current.map(idea => idea.id === currentIdea.id ? { ...idea, ...fields, locallyEdited: true } : idea))} />
             </article> : <>
             <div className="board-heading-row">
@@ -254,13 +304,6 @@ function App() {
               {collaboratorActions}
             </div>
 
-            <div className="board-layout-toolbar">
-              <span>{ideas.length} ideas · {layout === 'horizontal' ? 'Newest on the right' : 'Grid view'}</span>
-              <div className="layout-picker" role="group" aria-label="Card layout">
-                <button type="button" aria-pressed={layout === 'horizontal'} onClick={() => setLayout('horizontal')}><Columns3 size={15} /> Horizontal</button>
-                <button type="button" aria-pressed={layout === 'grid'} onClick={() => setLayout('grid')}><LayoutGrid size={15} /> Grid</button>
-              </div>
-            </div>
             {ideas.length > 0 ? (
               <div className={`idea-grid ${layout === 'horizontal' ? 'idea-rail' : ''}`} tabIndex={0} role="region" aria-label="Ideas">
                 {ideas.map((idea, index) => (
@@ -313,21 +356,12 @@ function App() {
             className="record-control primary-control"
             disabled={transitioning}
             aria-busy={transitioning}
-            onClick={() => recording === 'recording' ? stopRecording() : void startRecording()}
+            onClick={() => recording === 'recording' ? stopRecording(true) : void startRecording()}
           >
-            {recording === 'recording' || recording === 'saving' ? <Square size={13} fill="currentColor" /> : <Play size={14} fill="currentColor" />}
-            <span>{recording === 'saving' ? 'Saving…' : recording === 'connecting' ? 'Connecting…' : recording === 'recording' ? 'Stop' : 'Start'}</span>
+            {recording === 'recording' || recording === 'saving' ? <Pause size={13} /> : <Play size={14} fill="currentColor" />}
+            <span>{recording === 'connecting' ? 'Starting…' : recording === 'saving' ? 'Pausing…' : recording === 'recording' ? 'Pause' : recording === 'paused' ? 'Resume' : 'Start'}</span>
           </button>
-          <button type="button" className="record-control reset-control" disabled={recording !== 'stopped' || resetting} onClick={() => void resetTranscript().then(reset => {
-            if (!reset) return
-            // One transcript is one session: resetting it drops every idea on the board.
-            ideaSession.current++
-            setSessionIdeas(current => ({ ...current, Hackathon: [] }))
-            setFocusedIdeaId(null)
-            setSelectedIdea(null)
-          })}>
-            {resetting ? 'Resetting…' : 'Reset transcript'}
-          </button>
+          <button type="button" className="record-control restart-control" disabled={transitioning} onClick={() => { setRestartError(''); restartDialog.current?.showModal() }}><RotateCcw size={14} /><span>Restart</span></button>
         </footer>
       </main>
 
@@ -357,7 +391,7 @@ function App() {
         </div>
         <div className="transcript-feed" ref={transcriptFeedRef} aria-live="polite">
           {error && <InfoBanner key={error} message={error} role="alert" />}
-          {!loaded && !error && <InfoBanner message="Loading existing transcript…" />}
+          {!loaded && !error && <InfoBanner message="Loading existing transcript…" loading />}
           {loaded && transcript.length === 0 && <p>Start recording to capture your conversation.</p>}
           <div className="transcript-date"><span />TODAY<span /></div>
           {transcript.map((line, index) => (
@@ -367,7 +401,6 @@ function App() {
           ))}
           {recording === 'recording' && <div className="transcript-capture"><span className="capture-avatar">···</span><span>Listening for the next thought</span><span className="capture-pulse" /></div>}
         </div>
-        <div className="transcript-footer"><span className="transcript-private">Only visible to participants</span></div>
       </aside>
       {transcriptOpen && <button type="button" className="mobile-scrim" onClick={() => setTranscriptOpen(false)} aria-label="Close transcript panel" />}
     </div>

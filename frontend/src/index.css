@@ -20,6 +20,14 @@
   --primary-foreground: #fafafa;
   --secondary: #f4f4f5;
   --radius: 7px;
+  /* Four type roles: metadata, body/controls, section heading, page title. */
+  --text-small: 12px;
+  --text-body: 14px;
+  --text-heading: 20px;
+  --text-title: 32px;
+  --weight-regular: 400;
+  --weight-medium: 500;
+  --control-height: 36px;
 }
 
 * { box-sizing: border-box; }
@@ -30,9 +38,9 @@ body {
   margin: 0;
 }
 
-button, input { font: inherit; }
+button, input, textarea { font: inherit; }
 button { color: inherit; }
-button:focus-visible, a:focus-visible, input:focus-visible {
+button:focus-visible, a:focus-visible, input:focus-visible, textarea:focus-visible, summary:focus-visible, [tabindex]:focus-visible {
   outline: 2px solid #52525b;
   outline-offset: 2px;
 }
